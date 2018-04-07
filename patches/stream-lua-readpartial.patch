@@ -1,0 +1,59 @@
+diff --git a/src/ngx_stream_lua_socket_tcp.c b/src/ngx_stream_lua_socket_tcp.c
+index 4680811..4da1ac6 100644
+--- a/src/ngx_stream_lua_socket_tcp.c
++++ b/src/ngx_stream_lua_socket_tcp.c
+@@ -88,6 +88,7 @@ static int ngx_stream_lua_socket_write_error_retval_handler(
+     ngx_stream_session_t *s, ngx_stream_lua_socket_tcp_upstream_t *u,
+     lua_State *L);
+ static ngx_int_t ngx_stream_lua_socket_read_all(void *data, ssize_t bytes);
++static ngx_int_t ngx_stream_lua_socket_read_partial(void *data, ssize_t bytes);
+ static ngx_int_t ngx_stream_lua_socket_read_until(void *data, ssize_t bytes);
+ static ngx_int_t ngx_stream_lua_socket_read_chunk(void *data, ssize_t bytes);
+ static int ngx_stream_lua_socket_tcp_receiveuntil(lua_State *L);
+@@ -1736,6 +1737,10 @@ ngx_stream_lua_socket_tcp_receive(lua_State *L)
+                 u->input_filter = ngx_stream_lua_socket_read_all;
+                 break;
+ 
++            case 'p':
++                u->input_filter = ngx_stream_lua_socket_read_partial;
++                break;
++
+             default:
+                 return luaL_argerror(L, 2, "bad pattern argument");
+                 break;
+@@ -1918,6 +1923,35 @@ ngx_stream_lua_socket_read_all(void *data, ssize_t bytes)
+ 
+ 
+ static ngx_int_t
++ngx_stream_lua_socket_read_partial(void *data, ssize_t bytes)
++{
++    ngx_stream_lua_socket_tcp_upstream_t      *u = data;
++
++    ngx_buf_t                   *b;
++#if (NGX_DEBUG)
++    ngx_stream_session_t          *s;
++
++    s = u->request;
++#endif
++
++    ngx_log_debug0(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
++                   "stream lua tcp socket read partial");
++
++    if (bytes == 0) {
++        u->ft_type |= NGX_STREAM_LUA_SOCKET_FT_CLOSED;
++        return NGX_ERROR;
++    }
++
++    b = &u->buffer;
++
++    u->buf_in->buf->last += bytes;
++    b->pos += bytes;
++
++    return NGX_OK;
++}
++
++
++static ngx_int_t
+ ngx_stream_lua_socket_read_line(void *data, ssize_t bytes)
+ {
+     ngx_stream_lua_socket_tcp_upstream_t      *u = data;
