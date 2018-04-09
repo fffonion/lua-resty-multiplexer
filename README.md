@@ -1,7 +1,7 @@
 Name
 ====
 
-lua-resty-multiplexer - Port service multiplexer for stream subsystem 
+lua-resty-multiplexer - Transparent port service multiplexer for stream subsystem 
 
 Table of Contents
 =================
@@ -26,11 +26,11 @@ Table of Contents
 Description
 ===========
 
-This library is used to run multiple TCP services on the same port.
+This library implemented a transparent port service multiplexer, which can be used to run multiple TCP services on the same port.
 
 Note that nginx [stream module](https://nginx.org/en/docs/stream/ngx_stream_core_module.html) and [stream-lua-nginx-module](https://github.com/openresty/stream-lua-nginx-module) is required.
 
-Also a customed [patch](patches/stream-lua-readpartial.patch) from [fcicq](https://github.com/fcicq) is needed. The origin discussion can be found [here](https://github.com/fffonion/lua-resty-sniproxy/issues/1).
+Also a customed [patch](patches/stream-lua-readpartial.patch) from [@fcicq](https://github.com/fcicq) is needed. The origin discussion can be found [here](https://github.com/fffonion/lua-resty-sniproxy/issues/1).
 
 Tested on Openresty 1.13.6.1.
 
@@ -95,7 +95,7 @@ The rules defined is prioritized. In the example above, we defined a rule such t
 - If protocol is `HTTP` and client address is `10.0.0.2`, proxy to **internal-host:8001**
 - If protocol is `SSH`, proxy to **github.com:22**
 - If protocol is `DNS`, proxy to **1.1.1.1:53**
-- If protocol is `SSL/TLS` and current minute is between **0** and **30**,  proxy to **www.google.com:443**
+- If protocol is `SSL/TLS` and current minute is between **0** and **30**,  proxy to **twitter:443**
 - If protocol is `SSL/TLS` and current minute is between **31** and **59**, proxy to **www.google.com:443**
 - Otherwise, proxy to **127.0.0.1:80**
 
