@@ -232,7 +232,7 @@ function _M.run(self)
             ngx.log(ngx.INFO, "[multiplexer] cleaning up with an exit code ", code)
             break
         end
-        ngx.log(ngx.INFO, format("[multiplexer] protocol:%s exit:%d", protocol, code))
+        ngx.log(ngx.NOTICE, format("[multiplexer] protocol:%s exit:%d", protocol, code))
         local upstream, port
         
         for _, v in pairs(_M.rules) do
@@ -253,7 +253,7 @@ function _M.run(self)
             end
         end
         if upstream == nil or port == nil then
-            ngx.log(ngx.WARN, "[multiplexer] no matches found for this request")
+            ngx.log(ngx.NOTICE, "[multiplexer] no matches found for this request")
             break
         end
         ngx.log(ngx.INFO, format("[multiplexer] selecting upstream: %s:%d", upstream, port, err))
