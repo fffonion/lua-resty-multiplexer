@@ -124,17 +124,28 @@ function _M.new(self, bufsize, timeout)
 end
 
 local function _cleanup(self)
-    if self.srvsock ~= nil then
-        local ok, err = self.srvsock:close()
-        if not ok then
-            --
+    -- make sure buffers are clean
+    ngx.flush(true)
+
+    local srvsock = self.srvsock
+    local reqsock = self.reqsock
+    if srvsock ~= nil then
+        srvsock:shutdown("send")
+        if srvsock.close ~= nil then
+            local ok, err = srvsock:setkeepalive()
+            if not ok then
+                --
+            end
         end
     end
     
-    if self.reqsock ~= nil and self.reqsock.close ~= nil then
-        local ok, err = self.reqsock:close()
-        if not ok then
-            --
+    if reqsock ~= nil then
+        reqsock:shutdown("send")
+        if reqsock.close ~= nil then
+            local ok, err = reqsock:close()
+            if not ok then
+                --
+            end
         end
     end
     
@@ -170,11 +181,16 @@ local function _upl(self)
     local rsock = self.reqsock
     local ssock = self.srvsock
     while true do
-        buf = rsock:receive("*p")
-        if buf == nil then
+        buf, err, _ = rsock:receive("*p")
+        if err then
+            if ssock.close ~= nil then
+                _, err = ssock:send(_)
+            end
+            break
+        elseif buf == nil then
             break
         end
-        
+
         _, err = ssock:send(buf)
         if err then
             break
@@ -188,8 +204,13 @@ local function _dwn(self)
     local rsock = self.reqsock
     local ssock = self.srvsock
     while true do
-        buf = ssock:receive("*p")
-        if buf == nil then
+        buf, err, _ = ssock:receive("*p")
+        if err then
+            if rsock.close ~= nil then
+                _, err = rsock:send(_)
+            end
+            break
+        elseif buf == nil then
             break
         end
         
