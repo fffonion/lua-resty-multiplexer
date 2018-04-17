@@ -221,6 +221,15 @@ Where `protocol` is the identified protocol in lowercase string, and `expected` 
 API
 =======
 
+multiplexer.new
+--------------------------
+**syntax:** *multiplexer:new(connect_timeout, send_timeout, read_timeout)*
+
+Initialize the multiplexer instance. And sets the connect timeout thresold, send timeout threshold, and read timeout threshold, as in [tcpsock:settimeouts](https://github.com/openresty/lua-nginx-module#tcpsocksettimeouts).
+
+
+[Back to TOC](#table-of-contents)
+
 multiplexer.load_protocols
 --------------------------
 **syntax:** *multiplexer:load_protocols("protocol-1", "protocol-2", ...)*

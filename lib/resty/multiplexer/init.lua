@@ -102,24 +102,22 @@ _M.matcher_config = setmetatable({}, {
     end
 })
 
-function _M.new(self, bufsize, timeout)
+function _M.new(self, connect_timeout, send_timeout, read_timeout)
     local srvsock, err = tcp()
     if not srvsock then
         return nil, err
     end
-    --srvsock:settimeout(timeout or 10000)
+    srvsock:settimeouts(connect_timeout or 10000, send_timeout or 10000, read_timeout or 3600000)
     
     local reqsock, err = ngx.req.socket()
     if not reqsock then
         return nil, err
     end
-    --reqsock:settimeout(timeout or 10000)
+    reqsock:settimeouts(connect_timeout or 10000, send_timeout or 10000, read_timeout or 3600000)
+
     return setmetatable({
         srvsock = srvsock,
         reqsock = reqsock,
-        exit_flag = false,
-        server_name = nil,
-        bufsize = bufsize or 1024
     }, mt)
 end
 
@@ -130,7 +128,9 @@ local function _cleanup(self)
     local srvsock = self.srvsock
     local reqsock = self.reqsock
     if srvsock ~= nil then
-        srvsock:shutdown("send")
+        if srvsock.shutdown then
+            srvsock:shutdown("send")
+        end
         if srvsock.close ~= nil then
             local ok, err = srvsock:setkeepalive()
             if not ok then
@@ -140,7 +140,9 @@ local function _cleanup(self)
     end
     
     if reqsock ~= nil then
-        reqsock:shutdown("send")
+        if reqsock.shutdown then
+            reqsock:shutdown("send")
+        end
         if reqsock.close ~= nil then
             local ok, err = reqsock:close()
             if not ok then
@@ -158,9 +160,12 @@ local function probe(self)
     local bytes_read = 0
     local buf = ''
     for _, v in pairs(_M.protocols) do
-        ngx.log(ngx.INFO, "[multiplexer] check on position " .. v[1])
+        ngx.log(ngx.INFO, "[multiplexer] waiting for ", v[1] - bytes_read, " more bytes")
         -- read more bytes
-        local new_buf, err = self.reqsock:receive(v[1] - bytes_read)
+        local new_buf, err, partial = self.reqsock:receive(v[1] - bytes_read)
+        if err then
+            return 0, nil, buf .. partial
+        end
         -- concat buffer
         buf = buf .. new_buf
         -- check protocol
@@ -177,14 +182,14 @@ end
 
 local function _upl(self)
     -- proxy client request to server
-    local buf, len, err, hd, _
+    local buf, err, partial
     local rsock = self.reqsock
     local ssock = self.srvsock
     while true do
-        buf, err, _ = rsock:receive("*p")
+        buf, err, partial = rsock:receive("*p")
         if err then
-            if ssock.close ~= nil then
-                _, err = ssock:send(_)
+            if ssock.close ~= nil and partial then
+                _, err = ssock:send(partial)
             end
             break
         elseif buf == nil then
@@ -200,14 +205,14 @@ end
 
 local function _dwn(self)
     -- proxy response to client
-    local buf, len, err, hd, _
+    local buf, err, partial
     local rsock = self.reqsock
     local ssock = self.srvsock
     while true do
-        buf, err, _ = ssock:receive("*p")
+        buf, err, partial = ssock:receive("*p")
         if err then
-            if rsock.close ~= nil then
-                _, err = rsock:send(_)
+            if rsock.close ~= nil and partial then
+                _, err = rsock:send(partial)
             end
             break
         elseif buf == nil then
@@ -265,10 +270,10 @@ function _M.run(self)
         -- send buffer
         self.srvsock:send(buffer)
         
-        wait(
-            spawn(_upl, self),
-            spawn(_dwn, self)
-        )
+        local co_upl = spawn(_upl, self)
+        local co_dwn = spawn(_dwn, self)
+        wait(co_upl)
+        wait(co_dwn)
         
         break
     end
