@@ -103,12 +103,16 @@ _M.matcher_config = setmetatable({}, {
 })
 
 function _M.new(self, connect_timeout, send_timeout, read_timeout)
+    if _M.rules == nil or _M.matchers == nil then
+        return nil, "[multiplexer] no rule is defined"
+    end
+
     local srvsock, err = tcp()
     if not srvsock then
         return nil, err
     end
     srvsock:settimeouts(connect_timeout or 10000, send_timeout or 10000, read_timeout or 3600000)
-    
+
     local reqsock, err = ngx.req.socket()
     if not reqsock then
         return nil, err
@@ -138,7 +142,7 @@ local function _cleanup(self)
             end
         end
     end
-    
+
     if reqsock ~= nil then
         if reqsock.shutdown then
             reqsock:shutdown("send")
@@ -150,10 +154,27 @@ local function _cleanup(self)
             end
         end
     end
-    
+
 end
 
-local function probe(self)
+local function probe(sock, is_preread)
+    local f
+    if is_preread then
+        local read = 0
+        -- peek always start from beginning
+        f = function(sock, len)
+            local b, err = sock:peek(len + read)
+            if err then
+                return b, err
+            end
+            b = b:sub(read+1)
+            read = read + len
+            return b
+        end
+    else
+        f = sock.receive
+    end
+
     if _M.protocols == nil then
         return 0, nil, ""
     end
@@ -162,7 +183,7 @@ local function probe(self)
     for _, v in pairs(_M.protocols) do
         ngx.log(ngx.INFO, "[multiplexer] waiting for ", v[1] - bytes_read, " more bytes")
         -- read more bytes
-        local new_buf, err, partial = self.reqsock:receive(v[1] - bytes_read)
+        local new_buf, err, partial = f(sock, v[1] - bytes_read)
         if err then
             return 0, nil, buf .. partial
         end
@@ -218,7 +239,7 @@ local function _dwn(self)
         elseif buf == nil then
             break
         end
-        
+
         _, err = rsock:send(buf)
         if err then
             break
@@ -226,37 +247,59 @@ local function _dwn(self)
     end
 end
 
-function _M.run(self)
-    while true do
-        if _M.matchers == nil then
-            ngx.log(ngx.ERR, "[multiplexer] no rule is defined")
+local function _select_upstream(protocol_name)
+    local upstream, port
+    for _, v in pairs(_M.rules) do
+        local is_match = false
+        -- stop before last to elements of rules, which is server addr and port
+        for i = 1, #v - 2, 1 do
+            local m = _M.matchers[v[i][1]]
+            if not m then
+                ngx.log(ngx.WARN, "[multiplexer] try to use a matcher '", v[i][1], "', which is not loaded ")
+            elseif m.match(protocol_name, v[i][2]) then
+                is_match = true
+            end
+        end
+        if is_match then
+            upstream = v[#v - 1]
+            port = v[#v]
             break
         end
-        local code, protocol, buffer = probe(self)
+    end
+    return upstream, port, nil
+end
+
+function _M.preread_by(self)
+    local code, protocol, _ = probe(self.reqsock, true)
+    if code ~= 0 then
+        ngx.log(ngx.INFO, "[multiplexer] cleaning up with an exit code ", code)
+        return
+    end
+    ngx.log(ngx.NOTICE, format("[multiplexer] protocol:%s exit:%d", protocol, code))
+
+    local upstream, port, _ = _select_upstream(protocol)
+    if upstream == nil or port == nil then
+        ngx.log(ngx.NOTICE, "[multiplexer] no matches found for this request")
+        return
+    end
+
+    if upstream:sub(1, 5) ~= "unix:" then
+        upstream = upstream .. ":" .. tostring(port)
+    end
+    ngx.log(ngx.INFO, "[multiplexer] selecting upstream: ", upstream)
+    ngx.var.multiplexer_upstream = upstream
+end
+
+function _M.content_by(self)
+    while true do
+        local code, protocol, buffer = probe(self.reqsock)
         if code ~= 0 then
             ngx.log(ngx.INFO, "[multiplexer] cleaning up with an exit code ", code)
             break
         end
         ngx.log(ngx.NOTICE, format("[multiplexer] protocol:%s exit:%d", protocol, code))
-        local upstream, port
-        
-        for _, v in pairs(_M.rules) do
-            local is_match = false
-            -- stop before last to elements of rules, which is server addr and port
-            for i = 1, #v - 2, 1 do
-                local m = _M.matchers[v[i][1]]
-                if not m then
-                    ngx.log(ngx.WARN, "[multiplexer] try to use a matcher '", v[i][1], "', which is not loaded ")
-                elseif m.match(protocol, v[i][2]) then
-                    is_match = true
-                end
-            end
-            if is_match then
-                upstream = v[#v - 1]
-                port = v[#v]
-                break
-            end
-        end
+        local upstream, port = _select_upstream(protocol)
+
         if upstream == nil or port == nil then
             ngx.log(ngx.NOTICE, "[multiplexer] no matches found for this request")
             break
@@ -269,16 +312,31 @@ function _M.run(self)
         end
         -- send buffer
         self.srvsock:send(buffer)
-        
+
         local co_upl = spawn(_upl, self)
         local co_dwn = spawn(_dwn, self)
         wait(co_upl)
         wait(co_dwn)
-        
+
         break
     end
     _cleanup(self)
-    
+
+end
+
+-- backward compatibility
+function _M.run(self)
+    local phase = ngx.get_phase()
+    if phase == 'content' then
+        ngx.log(ngx.ERR, "content_by")
+        self:content_by()
+    elseif phase == 'preread' then
+        ngx.log(ngx.ERR, "preread_by")
+        self:preread_by()
+    else
+        ngx.log(ngx.ERR, "multiplexer doesn't support running in ", phase)
+        ngx.exit(ngx.ERROR)
+    end
 end
 
 

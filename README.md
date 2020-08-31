@@ -30,9 +30,13 @@ This library implemented a transparent port service multiplexer, which can be us
 
 Note that nginx [stream module](https://nginx.org/en/docs/stream/ngx_stream_core_module.html) and [stream-lua-nginx-module](https://github.com/openresty/stream-lua-nginx-module) is required.
 
-Also a customed [patch](patches/stream-lua-readpartial.patch) from [@fcicq](https://github.com/fcicq) is needed. The origin discussion can be found [here](https://github.com/fffonion/lua-resty-sniproxy/issues/1).
+Tested on Openresty >= 1.13.6.1.
 
-Tested on Openresty 1.13.6.1.
+With OpenResty 1.13.6.1, a customed [patch](patches/stream-lua-readpartial.patch) from [@fcicq](https://github.com/fcicq) is needed. The origin discussion can be found [here](https://github.com/fffonion/lua-resty-sniproxy/issues/1). And native
+proxying is not supported as `reqsock:peek` is missing.
+
+Starting OpenResty 1.15.8.1, only native proxying is supported and no patch is needed. Lua land proxying will be
+possible when stream-lua-nginx-module implemented `tcpsock:receiveany`.
 
 [Back to TOC](#table-of-contents)
 
@@ -70,13 +74,37 @@ stream {
 
     resolver 8.8.8.8;
 
+    # for OpenResty >= 1.13.6.1, native Nginx proxying
+    lua_add_variable $multiplexer_upstream;
     server {
-        listen 80;
-        content_by_lua_block {
-            local mul = require("resty.multiplexer")
-            local mp = mul:new()
-            mp:run()
-        }
+            error_log /var/log/nginx/multiplexer-error.log error;
+            listen 443;
+
+            resolver 8.8.8.8;
+
+            preread_by_lua_block {
+                local mul = require("resty.multiplexer")
+                local mp = mul:new()
+                mp:preread_by()
+            }
+            proxy_pass $multiplexer_upstream;
+    }
+
+    # for OpenResty < 1.13.6.1, Lua land proxying
+    server {
+            error_log /var/log/nginx/multiplexer-error.log error;
+            listen 443;
+
+            resolver 8.8.8.8;
+
+            server {
+                listen 80;
+                content_by_lua_block {
+                    local mul = require("resty.multiplexer")
+                    local mp = mul:new()
+                    mp:content_by()
+                }
+            }
     }
 }
 ```
