@@ -16,7 +16,7 @@ end
 
 
 local _M = new_tab(0, 8)
-_M._VERSION = '0.01'
+_M._VERSION = '0.02'
 _M.protocols = nil -- cached protocol modules
 _M.matchers = nil -- cached matcher modules
 _M.rules = nil -- user-definsed routing rules
