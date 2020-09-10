@@ -74,7 +74,7 @@ stream {
 
     resolver 8.8.8.8;
 
-    # for OpenResty >= 1.13.6.1, native Nginx proxying
+    # for OpenResty >= 1.15.8.1, native Nginx proxying
     lua_add_variable $multiplexer_upstream;
     server {
             error_log /var/log/nginx/multiplexer-error.log error;
@@ -90,7 +90,7 @@ stream {
             proxy_pass $multiplexer_upstream;
     }
 
-    # for OpenResty < 1.13.6.1, Lua land proxying
+    # for OpenResty < 1.15.8.1, with patch applied, Lua land proxying
     server {
             error_log /var/log/nginx/multiplexer-error.log error;
             listen 443;
